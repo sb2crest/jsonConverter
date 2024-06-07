@@ -2,7 +2,6 @@ package com.converter.service;
 
 import com.converter.exceptions.ProcessExecutionException;
 import com.fasterxml.jackson.databind.JsonNode;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.ExecutionException;
@@ -21,7 +20,7 @@ public class ConverterService {
 
     public String convertToEdi(JsonNode json, String agencyCode) throws ExecutionException, InterruptedException {
         JsonToEdi jsonToEdi = jsonToEdiPool.getJsonToEdi();
-        try{
+        try {
             return executorService.submit(() -> {
                 try {
                     return jsonToEdi.convert(json, agencyCode);
@@ -33,9 +32,10 @@ public class ConverterService {
             throw new ProcessExecutionException(e.getMessage());
         }
     }
-    public String convertToEdi(JsonNode json, String agencyCode,int poolSize) {
+
+    public String convertToEdi(JsonNode json, String agencyCode, int poolSize) {
         JsonToEdi jsonToEdi = jsonToEdiPool.getJsonToEdi(poolSize);
-        try{
+        try {
             return executorService.submit(() -> {
                 try {
                     return jsonToEdi.convert(json, agencyCode);

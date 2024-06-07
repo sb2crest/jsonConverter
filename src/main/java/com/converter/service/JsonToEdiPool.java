@@ -1,10 +1,8 @@
 package com.converter.service;
 
-import com.converter.exceptions.InvalidDataException;
 import com.converter.exceptions.MaxRetriesReachedException;
 import com.converter.initializers.Positions;
 import com.converter.utils.FileWriter;
-import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,21 +18,23 @@ public class JsonToEdiPool {
     private static final Logger log = LoggerFactory.getLogger(JsonToEdiPool.class);
 
     @Autowired
-    public JsonToEdiPool(Positions positions, FileWriter fileWriter) {
+    public JsonToEdiPool(Positions positions) {
         this.pool = new ArrayBlockingQueue<>(poolSize);
         for (int i = 0; i < poolSize; i++) {
-            pool.offer(new JsonToEdi(positions, fileWriter));
+            pool.offer(new JsonToEdi(positions));
         }
     }
 
     public JsonToEdi getJsonToEdi() {
         return get();
     }
+
     public JsonToEdi getJsonToEdi(int poolSize) {
         this.poolSize = poolSize;
         return get();
     }
-    private JsonToEdi get(){
+
+    private JsonToEdi get() {
         JsonToEdi jsonToEdi = pool.poll();
         if (jsonToEdi == null) {
             int maxRetries = 3;

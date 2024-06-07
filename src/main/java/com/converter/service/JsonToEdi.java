@@ -2,38 +2,28 @@ package com.converter.service;
 
 import com.converter.exceptions.InvalidDataException;
 import com.converter.initializers.Positions;
-import com.converter.utils.FileWriter;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.micrometer.common.util.StringUtils;
-import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class JsonToEdi {
     private final Positions positions;
-    private final FileWriter fileWriter;
     private static final Logger log = LoggerFactory.getLogger(JsonToEdi.class);
 
     public JsonToEdi() {
-        this(new Positions(), new FileWriter());
+        this(new Positions());
     }
 
     @Autowired
-    public JsonToEdi(Positions positions, FileWriter fileWriter) {
+    public JsonToEdi(Positions positions) {
         this.positions = positions;
-        this.fileWriter = fileWriter;
     }
 
     private final Map<String, StringBuilder> nonRepeatableLinesMap = new HashMap<>();
@@ -46,36 +36,25 @@ public class JsonToEdi {
 
     public String convert(JsonNode jsonData, String agencyCode) {
         validateInput(jsonData, agencyCode);
-        Path filePath = getFilePath();
         try {
             feedMappingDetails(agencyCode);
-            return map(jsonData, filePath);
+            String ediFile = map(jsonData);
+            finalOutputFile.clear();
+            return ediFile;
         } catch (InvalidDataException e) {
-            if (Files.exists(filePath)) {
-                try {
-                    Files.delete(filePath);
-                } catch (IOException ex) {
-                    throw new InvalidDataException("Error deleting file, " + ex.getMessage());
-                }
-            }
+            finalOutputFile.clear();
             reset();
             throw new InvalidDataException("Error processing JSON data, " + e.getMessage());
         }
     }
 
-    private String map(JsonNode jsonData, Path filePath) {
-        try (BufferedWriter writer = Files.newBufferedWriter(filePath)) {
-            fileWriter.writeFirstLines(writer);
-            finalOutputFile.addAll(List.of("A0901SY2SECFIL111715     PE                                361634    361634     ", "B  0901ME0PE                                               CRIMSONTEST1         "));
-            processJsonData(jsonData, writer);
-            fileWriter.writeLastLines(writer);
-            finalOutputFile.addAll(List.of("Y  0901ME0PE                                                                    ", "Z0901SY2      111715                                                            "));
-            String finalOutput = convertListToString(finalOutputFile);
-            finalOutputFile.clear();
-            return finalOutput;
-        } catch (IOException e) {
-            throw new InvalidDataException("Error in writing edi file, " + e.getMessage());
-        }
+    private String map(JsonNode jsonData) {
+        finalOutputFile.addAll(List.of("A0901SY2SECFIL111715     PE                                361634    361634     ", "B  0901ME0PE                                               CRIMSONTEST1         "));
+        processJsonData(jsonData);
+        finalOutputFile.addAll(List.of("Y  0901ME0PE                                                                    ", "Z0901SY2      111715                                                            "));
+        String finalOutput = convertListToString(finalOutputFile);
+        finalOutputFile.clear();
+        return finalOutput;
     }
 
     public String convertListToString(List<String> list) {
@@ -89,14 +68,6 @@ public class JsonToEdi {
         if (StringUtils.isBlank(agencyCode)) {
             throw new InvalidDataException("Agency code can not be null or empty");
         }
-    }
-
-    private Path getFilePath() {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss");
-        String timestamp = dateFormat.format(new Date());
-        String fileName = "output_" + timestamp + ".txt";
-        Path downloadsPath = Paths.get(System.getProperty("user.home"), "Downloads");
-        return downloadsPath.resolve(fileName);
     }
 
     private void feedMappingDetails(String agencyCode) {
@@ -133,29 +104,28 @@ public class JsonToEdi {
         });
     }
 
-    private void processJsonData(JsonNode jsonData, BufferedWriter writer) {
+    private void processJsonData(JsonNode jsonData) {
         jsonData.fields().forEachRemaining(data -> {
             if (!data.getValue().isArray() && !data.getValue().isObject()) {
                 String pgSegment = processField(data.getKey(), data.getValue().asText());
                 keySet.add(pgSegment);
             } else if (data.getValue().isArray()) {
-                processRootArray(data.getValue(), writer);
+                processRootArray(data.getValue());
             }
         });
     }
 
-    private void processRootArray(JsonNode jsonNode, BufferedWriter writer) {
+    private void processRootArray(JsonNode jsonNode) {
         jsonNode.forEach(element -> {
             if (element.isObject()) {
                 processObject(element);
             }
-            writeToFile(writer);
+            writeToFile();
         });
     }
 
-    private void writeToFile(BufferedWriter writer) {
+    private void writeToFile() {
         sortLines();
-        fileWriter.writeToFile(allEntries, writer);
         finalOutputFile.addAll(allEntries.stream()
                 .filter(Objects::nonNull)
                 .map(String::valueOf)
