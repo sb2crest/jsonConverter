@@ -31,14 +31,19 @@ public class ConverterService {
             }
         }).get();
     }
-    public String convertToEdi(JsonNode json, String agencyCode,int poolSize) throws ExecutionException, InterruptedException {
+    public String convertToEdi(JsonNode json, String agencyCode,int poolSize) {
         JsonToEdi jsonToEdi = jsonToEdiPool.getJsonToEdi(poolSize);
-        return executorService.submit(() -> {
-            try {
-                return jsonToEdi.convert(json, agencyCode);
-            } finally {
-                jsonToEdiPool.returnJsonToEdi(jsonToEdi);
-            }
-        }).get();
+        try{
+            return executorService.submit(() -> {
+                try {
+                    return jsonToEdi.convert(json, agencyCode);
+                } finally {
+                    jsonToEdiPool.returnJsonToEdi(jsonToEdi);
+                }
+            }).get();
+        } catch (ExecutionException | InterruptedException e) {
+            throw new ProcessExecutionException(e.getMessage());
+        }
+
     }
 }
