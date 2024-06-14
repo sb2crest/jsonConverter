@@ -36,6 +36,7 @@ public class ConverterService {
                 throw new ProcessExecutionException(e.getMessage());
             }
         }
+        executorService.shutdown();
         return responses;
     }
 
