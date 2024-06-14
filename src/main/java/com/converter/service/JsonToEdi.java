@@ -2,6 +2,8 @@ package com.converter.service;
 
 import com.converter.exceptions.InvalidDataException;
 import com.converter.initializers.Positions;
+import com.converter.objects.EdiRequest;
+import com.converter.objects.EdiResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.micrometer.common.util.StringUtils;
 import org.slf4j.Logger;
@@ -34,13 +36,16 @@ public class JsonToEdi {
     private static List<String> segmentOrder = null;
     private static Map<String, String> mapPositions = null;
 
-    public String convert(JsonNode jsonData, String agencyCode) {
-        validateInput(jsonData, agencyCode);
+    public EdiResponse convert(EdiRequest request, String agencyCode) {
+        validateInput(request, agencyCode);
         try {
             feedMappingDetails(agencyCode);
-            String ediFile = map(jsonData);
+            String ediFile = map(request.getSubject());
             finalOutputFile.clear();
-            return ediFile;
+            EdiResponse response = new EdiResponse();
+            response.setRefId(request.getRefId());
+            response.setFile(ediFile);
+            return response;
         } catch (InvalidDataException e) {
             finalOutputFile.clear();
             reset();
@@ -61,9 +66,12 @@ public class JsonToEdi {
         return String.join("\n", list) + "\n";
     }
 
-    private void validateInput(JsonNode jsonData, String agencyCode) {
-        if (jsonData == null) {
+    private void validateInput(EdiRequest request, String agencyCode) {
+        if (request.getSubject() == null) {
             throw new InvalidDataException("The provided json data is null");
+        }
+        if (request.getRefId() == null) {
+            throw new InvalidDataException("The provided json data is null, This is thread based execution. Providing a reference is mandatory for identification");
         }
         if (StringUtils.isBlank(agencyCode)) {
             throw new InvalidDataException("Agency code can not be null or empty");

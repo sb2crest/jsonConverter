@@ -2,7 +2,6 @@ package com.converter.service;
 
 import com.converter.exceptions.MaxRetriesReachedException;
 import com.converter.initializers.Positions;
-import com.converter.utils.FileWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,12 +23,20 @@ public class JsonToEdiPool {
             pool.offer(new JsonToEdi(positions));
         }
     }
+    public JsonToEdiPool(Positions positions,int poolSize) {
+        this.poolSize = poolSize;
+        log.info("JsonToEdi pool size changed to " + poolSize);
+        this.pool = new ArrayBlockingQueue<>(poolSize);
+        for (int i = 0; i < poolSize; i++) {
+            pool.offer(new JsonToEdi(positions));
+        }
+    }
 
-    public JsonToEdi getJsonToEdi() {
+    public JsonToEdi borrowJsonToEdi() {
         return get();
     }
 
-    public JsonToEdi getJsonToEdi(int poolSize) {
+    public JsonToEdi borrowJsonToEdi(int poolSize) {
         this.poolSize = poolSize;
         return get();
     }

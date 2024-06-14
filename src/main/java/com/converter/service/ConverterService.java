@@ -1,12 +1,14 @@
 package com.converter.service;
 
 import com.converter.exceptions.ProcessExecutionException;
+import com.converter.objects.EdiRequest;
+import com.converter.objects.EdiResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
 
 @Service
 public class ConverterService {
@@ -18,34 +20,39 @@ public class ConverterService {
         this.executorService = Executors.newFixedThreadPool(jsonToEdiPool.getPoolSize());
     }
 
-    public String convertToEdi(JsonNode json, String agencyCode) throws ExecutionException, InterruptedException {
-        JsonToEdi jsonToEdi = jsonToEdiPool.getJsonToEdi();
+    public List<EdiResponse> convertToEdi(List<EdiRequest> requests, String agencyCode) throws ProcessExecutionException {
+        List<Future<EdiResponse>> futures = new ArrayList<>();
+
         try {
-            return executorService.submit(() -> {
+            for (EdiRequest request : requests) {
+                // Borrow a JsonToEdi object from the pool
+                JsonToEdi jsonToEdi = jsonToEdiPool.borrowJsonToEdi();
+                Callable<EdiResponse> task = () -> {
+                    try {
+                        return jsonToEdi.convert(request, agencyCode);
+                    } finally {
+                        // Return the JsonToEdi object to the pool after use
+                        jsonToEdiPool.returnJsonToEdi(jsonToEdi);
+                    }
+                };
+                futures.add(executorService.submit(task));
+            }
+
+            List<EdiResponse> responses = new ArrayList<>();
+            for (Future<EdiResponse> future : futures) {
                 try {
-                    return jsonToEdi.convert(json, agencyCode);
-                } finally {
-                    jsonToEdiPool.returnJsonToEdi(jsonToEdi);
+                    responses.add(future.get());
+                } catch (InterruptedException | ExecutionException e) {
+                    Thread.currentThread().interrupt();
+                    throw new ProcessExecutionException(e.getMessage());
                 }
-            }).get();
-        } catch (ExecutionException | InterruptedException e) {
+            }
+            return responses;
+        } catch (Exception e) {
             throw new ProcessExecutionException(e.getMessage());
         }
     }
 
-    public String convertToEdi(JsonNode json, String agencyCode, int poolSize) {
-        JsonToEdi jsonToEdi = jsonToEdiPool.getJsonToEdi(poolSize);
-        try {
-            return executorService.submit(() -> {
-                try {
-                    return jsonToEdi.convert(json, agencyCode);
-                } finally {
-                    jsonToEdiPool.returnJsonToEdi(jsonToEdi);
-                }
-            }).get();
-        } catch (ExecutionException | InterruptedException e) {
-            throw new ProcessExecutionException(e.getMessage());
-        }
 
-    }
+
 }
