@@ -7,6 +7,11 @@ import com.converter.service.ConverterService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
@@ -20,11 +25,7 @@ public class EdiController {
     }
 
     @PostMapping("/json-edi")
-    public List<EdiResponse> convertToEdi(@RequestBody List<EdiRequest> requests, @RequestParam("org") String org) {
-        List<EdiResponse> responses= ediConverter.convertToEdi(requests, org);
-        System.out.println(responses.get(0).getFile());
-        return responses;
+    public List<EdiResponse> convertToEdi(@RequestBody List<EdiRequest> requests) {
+        return ediConverter.convertToEdiParallel(requests);
     }
-
-
 }

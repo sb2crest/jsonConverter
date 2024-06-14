@@ -9,7 +9,7 @@ import java.util.Map;
 
 @Component
 public class Positions {
-    public Map<List<String>, Map<String, String>> getFDA() {
+    public static Map<List<String>, Map<String, String>> getFDA() {
         List<String> segmentOrder = Arrays.asList("PE10","PE15","OI","PG01", "PG02", "PG04", "PG06", "PG07", "PG10", "PG13", "PG14", "PG19", "PG20", "PG21", "PG23", "PG24", "PG25", "PG26", "PG27", "PG28", "PG30", "PG60", "PG00","PE90");
         Map<String, String> POSITION = new HashMap<>();
         POSITION.put("actionCode","PE10/1/5/5/L/N");
