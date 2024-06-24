@@ -71,10 +71,10 @@ public class Positions {
         POSITION.put("stateOrProvince", "PG20/3/63/65/L/G");
         POSITION.put("country", "PG20/2/66/67/L/G");
         POSITION.put("postalCode", "PG20/9/68/76/L/G");
-        POSITION.put("individualQualifier", "PG21/3/5/7/L/G");
-        POSITION.put("contactPerson", "PG21/23/8/30/L/G");
-        POSITION.put("telephoneNumber", "PG21/15/31/45/L/G");
-        POSITION.put("email", "PG21/35/46/80/L/G");
+        POSITION.put("individualQualifier", "PG21/3/5/7/L/I");
+        POSITION.put("contactPerson", "PG21/23/8/30/L/I");
+        POSITION.put("telephoneNumber", "PG21/15/31/45/L/I");
+        POSITION.put("email", "PG21/35/46/80/L/I");
         POSITION.put("affirmationComplianceCode", "PG23/5/5/9/L/I");
         POSITION.put("affirmationComplianceQualifier", "PG23/30/10/39/L/I");
         POSITION.put("remarksTypeCode", "PG24/3/5/7/L/N");

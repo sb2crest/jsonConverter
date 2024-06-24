@@ -5,6 +5,7 @@ import com.converter.initializers.Positions;
 import com.converter.objects.Components;
 import com.converter.objects.EdiRequest;
 import com.converter.objects.EdiResponse;
+import com.converter.objects.ProcessResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.micrometer.common.util.StringUtils;
 import org.slf4j.Logger;
@@ -13,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @Service
@@ -30,7 +32,9 @@ public class JsonToEdi {
     }
 
     public EdiResponse convert(EdiRequest request) {
+        feedMappingDetails("FDA");
         validateInput(request);
+
         Components components = new Components();
         try {
             String ediFile = map(request.getSubject(),components);
@@ -90,14 +94,14 @@ public class JsonToEdi {
     }
 
     private void sortLines(Components components) {
-        List<String> sortedKeys = new ArrayList<>(components.getNonRepeatableLinesMap().keySet());
-        sortedKeys.addAll(components.getGroupRepeatableMap().keySet());
+        List<String> sortedKeys = new ArrayList<>(components.getSingleLineHolder().keySet());
+        sortedKeys.addAll(components.getGroupRepeatableLineHolder().keySet());
         sortedKeys = sortedKeys.stream().distinct().filter(key -> !key.isEmpty()).sorted(Comparator.comparingInt(SORTING_ORDER::indexOf)).collect(Collectors.toList());
         sortedKeys.forEach(entry -> {
-            if (components.getNonRepeatableLinesMap().containsKey(entry)) {
-                components.getAllEntries().add(components.getNonRepeatableLinesMap().get(entry));
-            } else if (components.getGroupRepeatableMap().containsKey(entry)) {
-                components.getAllEntries().addAll(components.getGroupRepeatableMap().get(entry));
+            if (components.getSingleLineHolder().containsKey(entry)) {
+                components.getAllEntries().add(components.getSingleLineHolder().get(entry));
+            } else if (components.getGroupRepeatableLineHolder().containsKey(entry)) {
+                components.getAllEntries().addAll(components.getGroupRepeatableLineHolder().get(entry));
             } else {
                 log.error("Not matching key :{}", entry);
             }
@@ -107,8 +111,8 @@ public class JsonToEdi {
     private void processJsonData(JsonNode jsonData,Components components) {
         jsonData.fields().forEachRemaining(data -> {
             if (!data.getValue().isArray() && !data.getValue().isObject()) {
-                String pgSegment = processField(data.getKey(), data.getValue().asText(),components);
-                components.getKeySet().add(pgSegment);
+                ProcessResult processResult = processField(data.getKey(), data.getValue().asText(),components);
+                components.getKeySet().add(processResult.getPgSegment());
             } else if (data.getValue().isArray()) {
                 processRootArray(data.getValue(),components);
             }
@@ -136,50 +140,84 @@ public class JsonToEdi {
 
     private void reset(Components components) {
         components.getAllEntries().clear();
-        components.getGroupRepeatableMap().clear();
-        components.getNonRepeatableLinesMap().clear();
+        components.getGroupRepeatableLineHolder().clear();
+        components.getSingleLineHolder().clear();
     }
 
     private void processArray(JsonNode arrayNode,Components components) {
         arrayNode.forEach(element -> {
             if (element.isObject()) {
-                Set<String> pgSegment = processObject(element,components);
+                List<String> pgSegment = processObject(element,components);
                 processSegment(pgSegment,components);
             }
         });
     }
+    private Set<String> processInnerArray(JsonNode arrayNode,Components components) {
+        Set<String> pgSegmentList = new HashSet<>();
+        arrayNode.forEach(element -> {
+            if (element.isObject()) {
+                List<String> pgSegment = processObject(element,components);
+                pgSegmentList.addAll(pgSegment);
+                processSegmentForInnerArrays(pgSegment,components);
+            }
+        });
+        return pgSegmentList;
+    }
+    private void processSegmentForInnerArrays(List<String> pgSegments, Components components){
+        pgSegments.forEach(
+                segment -> {
+                    if (components.getSingleLineHolder().containsKey(segment)) {
+                        components.getInnerListLineHolder().computeIfAbsent(segment, k -> new ArrayList<>())
+                               .add(components.getSingleLineHolder().get(segment));
+                        components.getSingleLineHolder().remove(segment);
+                    } else {
+                        log.error("Not matching key :{}", segment);
+                    }
+                }
+        );
+    }
 
-    private Set<String> processObject(JsonNode element,Components components) {
-        Set<String> pgSegmentTracker = new HashSet<>();
+    private List<String> processObject(JsonNode element,Components components) {
+        List<String> pgSegmentTracker = new ArrayList<>();
+        AtomicBoolean isGroupRepeatable = new AtomicBoolean(false);
         element.fields().forEachRemaining(field -> {
             String fieldName = field.getKey();
             JsonNode fieldValue = field.getValue();
             if (!fieldValue.isArray() && !fieldValue.isObject()) {
-                String pgSegment = processField(fieldName, fieldValue.asText(),components);
-                pgSegmentTracker.add(pgSegment);
-            } else if (fieldValue.isArray()) {
+                ProcessResult processResult = processField(fieldName, fieldValue.asText(),components);
+                isGroupRepeatable.set(processResult.isGroupRepeatable());
+                pgSegmentTracker.add(processResult.getPgSegment());
+            } else if (fieldValue.isArray() && isGroupRepeatable.get()) {
+                Set<String> strings = processInnerArray(fieldValue, components);
+                pgSegmentTracker.addAll(strings);
+            } else if (fieldValue.isArray() && !isGroupRepeatable.get() ) {
                 processArray(fieldValue,components);
             }
         });
         return pgSegmentTracker;
     }
-    private void processSegment(Set<String> pgSegment,Components components) {
+    private void processSegment(List<String> pgSegment,Components components) {
         List<String> sortedValues = pgSegment.stream()
                 .sorted(Comparator.comparingInt(SORTING_ORDER::indexOf))
                 .filter(Objects::nonNull)
                 .toList();
         String firstPgSegment = sortedValues.get(0);
         sortedValues.forEach(segment -> {
-            if (components.getNonRepeatableLinesMap().containsKey(segment)) {
-                components.getGroupRepeatableMap().computeIfAbsent(firstPgSegment, k -> new ArrayList<>())
-                        .add(components.getNonRepeatableLinesMap().get(segment));
-                components.getNonRepeatableLinesMap().remove(segment);
+            if (components.getSingleLineHolder().containsKey(segment)) {
+                components.getGroupRepeatableLineHolder().computeIfAbsent(firstPgSegment, k -> new ArrayList<>())
+                        .add(components.getSingleLineHolder().get(segment));
+                components.getSingleLineHolder().remove(segment);
+            } else if (components.getInnerListLineHolder().containsKey(segment)) {
+                components.getGroupRepeatableLineHolder().computeIfAbsent(firstPgSegment, k -> new ArrayList<>())
+                        .addAll(components.getInnerListLineHolder().get(segment));
+                components.getInnerListLineHolder().remove(segment);
             }
         });
     }
 
-    private String processField(String field, String value,Components components) {
+    private ProcessResult processField(String field, String value,Components components) {
         String pgSegment = null;
+        boolean isGroupRepeatable=false;
         try {
             if (!StringUtils.isBlank(value) && MAP_POSITIONS.containsKey(field)) {
                 String[] mapping = MAP_POSITIONS.get(field).split("/");
@@ -187,9 +225,13 @@ public class JsonToEdi {
                     value = value.replaceAll("[^a-zA-Z0-9]", "");
                 }
                 pgSegment = mapping[0];
+                String repeatMode=mapping[5];
                 int length = Integer.parseInt(mapping[1]);
                 if (value.length() > length) {
                     throw new InvalidDataException("Length of field value '" + value + "' exceeds the maximum length for the key '" + field + "' ( expected " + length + " , actual " + value.length() + " )");
+                }
+                if (repeatMode.equals("G")) {
+                    isGroupRepeatable=true;
                 }
                 int startPosition = Integer.parseInt(mapping[2]) - 1;
                 char alignment = mapping[4].charAt(0);
@@ -198,21 +240,24 @@ public class JsonToEdi {
         } catch (NumberFormatException e) {
             throw new InvalidDataException("Error parsing integer value in mapping for field " + field + ". Verify the mapping details for the key " + field + " provided.");
         }
-        return pgSegment;
+        ProcessResult result=new ProcessResult();
+        result.setGroupRepeatable(isGroupRepeatable);
+        result.setPgSegment(pgSegment);
+        return result;
     }
 
     private void updateLine(String fieldValue, String pgSegment, char alignment, int length, int startPosition,Components components) {
-        components.getNonRepeatableLinesMap().computeIfAbsent(pgSegment, key -> {
+        components.getSingleLineHolder().computeIfAbsent(pgSegment, key -> {
             StringBuilder sb = new StringBuilder();
             sb.append(pgSegment);
             sb.append(" ".repeat(80 - pgSegment.length()));
             return sb;
         });
-        StringBuilder currentLine = components.getNonRepeatableLinesMap().get(pgSegment);
+        StringBuilder currentLine = components.getSingleLineHolder().get(pgSegment);
         if (alignment == 'R') {
             fieldValue = String.format("%" + length + "s", fieldValue).replace(' ', '0');
         }
         currentLine.replace(startPosition, startPosition + fieldValue.length(), fieldValue);
-        components.getNonRepeatableLinesMap().put(pgSegment, currentLine);
+        components.getSingleLineHolder().put(pgSegment, currentLine);
     }
 }
